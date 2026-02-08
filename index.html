@@ -191,6 +191,65 @@
     .note{ color:var(--muted); font-size:12px; line-height:1.4; }
     .two{ display:grid; gap:10px; grid-template-columns:1fr 1fr; }
     @media (max-width:560px){ .two{ grid-template-columns:1fr; } }
+
+    /* Modal */
+    .modalBack{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.55);
+      display:flex; align-items:flex-end; justify-content:center;
+      padding:12px;
+      z-index:999;
+    }
+    .modal{
+      width:min(980px, 100%);
+      max-height: 86vh;
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid var(--line);
+      border-radius:18px;
+      overflow:hidden;
+      box-shadow: 0 30px 80px rgba(0,0,0,.45);
+      display:flex; flex-direction:column;
+    }
+    .modalHead{
+      padding:10px 12px;
+      border-bottom:1px solid var(--line);
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      background:rgba(0,0,0,.25);
+    }
+    .modalHead .h{
+      font-weight:900; font-size:13px;
+      color:var(--text);
+    }
+    .modalBody{
+      padding:12px;
+      overflow:auto;
+    }
+    .figRow{
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+    }
+    .figLeft{
+      display:flex; gap:10px; align-items:center;
+      min-width: 0;
+    }
+    .thumb{
+      width:54px; height:54px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:rgba(0,0,0,.22);
+      overflow:hidden;
+      flex: 0 0 auto;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .thumb img{
+      width:100%; height:100%;
+      object-fit:cover;
+      display:block;
+    }
+    .thumb .ph{
+      font-size:10px; color:var(--muted);
+      padding:6px; text-align:center; line-height:1.2;
+    }
+    .mutedSmall{ font-size:11px; color:var(--muted); }
   </style>
 </head>
 <body>
@@ -251,7 +310,7 @@
 /* =========================
    Storage & Helpers
 ========================= */
-const KEY = "kabare2_v1";
+const KEY = "kabare2_v2_counts";
 const todayStr = (() => {
   const d = new Date();
   const y = d.getFullYear();
@@ -261,46 +320,7 @@ const todayStr = (() => {
 })();
 document.getElementById("today").textContent = todayStr;
 
-function loadState(){
-  const raw = localStorage.getItem(KEY);
-  if(!raw){
-    return {
-      activeTab: "k",
-      day: todayStr,
-      k: defaultKState(),
-      r: defaultRState(),
-      history: [] // {id, day, tab, text, ts}
-    };
-  }
-  try{
-    const s = JSON.parse(raw);
-    if(!s.k) s.k = defaultKState();
-    if(!s.r) s.r = defaultRState();
-    if(!Array.isArray(s.history)) s.history = [];
-    if(!s.day) s.day = todayStr;
-    if(!s.activeTab) s.activeTab = "k";
-    return s;
-  }catch{
-    return {
-      activeTab: "k",
-      day: todayStr,
-      k: defaultKState(),
-      r: defaultRState(),
-      history: []
-    };
-  }
-}
-function saveState(){
-  localStorage.setItem(KEY, JSON.stringify(state));
-}
-function uid(){
-  return Math.random().toString(16).slice(2) + Date.now().toString(16);
-}
 function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
-function pct(a,b){
-  if(b<=0) return null;
-  return (a/b)*100;
-}
 function fmtPct(x){
   if(x==null) return "—";
   return `${x.toFixed(1)}%`;
@@ -309,27 +329,9 @@ function nowTs(){
   const d = new Date();
   return d.toLocaleTimeString("ja-JP", {hour:"2-digit", minute:"2-digit"});
 }
-function addHist(tab, text){
-  // day rollover: if stored day != today, keep old history but update day field to today for active sessions
-  const item = { id: uid(), day: todayStr, tab, text, ts: nowTs() };
-  state.history.unshift(item);
-  saveState();
-  renderRight();
+function uid(){
+  return Math.random().toString(16).slice(2) + Date.now().toString(16);
 }
-function delHist(id){
-  state.history = state.history.filter(x => x.id !== id);
-  saveState();
-  renderRight();
-}
-function resetDay(){
-  // only reset current-day entries + current tab states
-  state.history = state.history.filter(x => x.day !== todayStr);
-  state.k = defaultKState();
-  state.r = defaultRState();
-  saveState();
-  renderAll();
-}
-
 function downloadJSON(obj, filename){
   const blob = new Blob([JSON.stringify(obj,null,2)], {type:"application/json"});
   const a = document.createElement("a");
@@ -345,85 +347,108 @@ function downloadJSON(obj, filename){
 function defaultKState(){
   return {
     totalG: "",
-    // CZ: appear & success
     cz: {
       unmei:{a:0,s:0},
       ikoma:{a:0,s:0},
       biba:{a:0,s:0},
     },
-    // bonuses
     bonus: {
-      sjo:0, // 駿城
-      epi:0, // エピソード回数
-      epi7:0, // 7話回数
-      epiLast: null // last selected episode number
+      sjo:0,
+      epi:0,
+      epi7:0,
+      epiLast: null
     },
-    // characters
     char: { male:0, female:0 },
-    // optional
-    midBell: { count:"", base:"" }, // count and games base for rate; base can reuse totalG
+    midBell: { count:"", base:"" },
     notes: ""
   };
 }
+
+function buildRE2Meta(){
+  // group: white/blue/red/deny/confirm
+  return [
+    {id:"oddWeak",  group:"white",   name:"ゾンビ(男)/ゾンビ(女)/ゾンビ犬", tag:"奇数示唆（弱）"},
+    {id:"oddStrong",group:"white",   name:"イビー/リッカー/ペイルヘッド", tag:"奇数示唆（強）"},
+    {id:"evenWeak", group:"blue",    name:"レオン/マービン/特殊部隊", tag:"偶数示唆（弱）"},
+    {id:"evenStrong",group:"blue",   name:"クレア/シェリー/アネット", tag:"偶数示唆（強）"},
+    {id:"hiWeak",   group:"red",     name:"タイラント/エイダ（スーツ）", tag:"高設定示唆（弱）"},
+    {id:"hiStrong", group:"red",     name:"スーパータイラント/エイダ（ドレス）", tag:"高設定示唆（強）"},
+    {id:"deny1",    group:"deny",    name:"G第1形態", tag:"設定1否定"},
+    {id:"deny2",    group:"deny",    name:"G第2形態", tag:"設定2否定"},
+    {id:"deny3",    group:"deny",    name:"G第3形態", tag:"設定3否定"},
+    {id:"deny4",    group:"deny",    name:"G第4形態", tag:"設定4否定"},
+    {id:"ge3",      group:"confirm", name:"豆腐", tag:"設定3以上"},
+    {id:"ge4",      group:"confirm", name:"ボスクリーチャー", tag:"設定4以上"},
+    {id:"ge5",      group:"confirm", name:"全員集合", tag:"設定5以上"},
+    {id:"eq6",      group:"confirm", name:"エンタライオン", tag:"設定6確定"},
+  ];
+}
+
 function defaultRState(){
+  const meta = buildRE2Meta();
+  const counts = {};
+  for(const m of meta) counts[m.id] = 0;
+
   return {
     totalG: "",
     cz: { count:0, win:0 },
     at: { count:0 },
     direct: { count:0 },
-    through: { count:0 }, // 連続スルー
-    figs: initRE2Figs()
+    through: { count:0 },
+    figs: { _meta: meta, counts }
   };
 }
 
 /* =========================
-   RE2 Figures
-   - user provided table
+   State load/save + migration
 ========================= */
-function initRE2Figs(){
-  // store counts
-  const list = [
-    {key:"oddWeak", name:"ゾンビ(男)/ゾンビ(女)/ゾンビ犬", tag:"奇数示唆（弱）"},
-    {key:"oddStrong", name:"イビー/リッカー/ペイルヘッド", tag:"奇数示唆（強）"},
-    {key:"evenWeak", name:"レオン/マービン/特殊部隊", tag:"偶数示唆（弱）"},
-    {key:"evenStrong", name:"クレア/シェリー/アネット", tag:"偶数示唆（強）"},
-    {key:"hiWeak", name:"タイラント/エイダ（スーツ）", tag:"高設定示唆（弱）"},
-    {key:"hiStrong", name:"スーパータイラント/エイダ（ドレス）", tag:"高設定示唆（強）"},
-    {key:"deny1", name:"G第1形態", tag:"設定1否定"},
-    {key:"deny2", name:"G第2形態", tag:"設定2否定"},
-    {key:"deny3", name:"G第3形態", tag:"設定3否定"},
-    {key:"deny4", name:"G第4形態", tag:"設定4否定"},
-    {key:"ge3", name:"豆腐", tag:"設定3以上"},
-    {key:"ge4", name:"ボスクリーチャー", tag:"設定4以上"},
-    {key:"ge5", name:"全員集合", tag:"設定5以上"},
-    {key:"eq6", name:"エンタライオン", tag:"設定6確定"},
-  ];
-  const obj = {};
-  for(const f of list) obj[f.key] = 0;
-  obj._meta = list;
-  return obj;
+function loadState(){
+  const raw = localStorage.getItem(KEY);
+  if(!raw){
+    return {
+      activeTab: "k",
+      day: todayStr,
+      k: defaultKState(),
+      r: defaultRState(),
+      history: []
+    };
+  }
+  try{
+    const s = JSON.parse(raw);
+    // ensure shape
+    if(!s.k) s.k = defaultKState();
+    if(!s.r) s.r = defaultRState();
+    if(!Array.isArray(s.history)) s.history = [];
+    if(!s.day) s.day = todayStr;
+    if(!s.activeTab) s.activeTab = "k";
+
+    // ensure RE2 meta+counts exist
+    const meta = buildRE2Meta();
+    if(!s.r.figs) s.r.figs = { _meta: meta, counts:{} };
+    if(!Array.isArray(s.r.figs._meta)) s.r.figs._meta = meta;
+    if(!s.r.figs.counts || typeof s.r.figs.counts !== "object") s.r.figs.counts = {};
+    for(const m of meta){
+      if(typeof s.r.figs.counts[m.id] !== "number") s.r.figs.counts[m.id] = Number(s.r.figs.counts[m.id] || 0);
+    }
+
+    return s;
+  }catch{
+    return {
+      activeTab: "k",
+      day: todayStr,
+      k: defaultKState(),
+      r: defaultRState(),
+      history: []
+    };
+  }
 }
-
-/* =========================
-   Kabaneri reference tables
-   (using user-provided values)
-========================= */
-const K_REF = {
-  // expected rates (1/x) for bonus and ST
-  bonusAll: {1:237.0,2:230.7,3:214.0,4:186.5,5:171.3,6:151.3},
-  stAll: {1:407.9,2:393.2,3:372.4,4:327.2,5:307.3,6:290.6},
-  midBell: {1:26.6,2:26.6,3:25.9,4:25.4,5:24.9,6:24.2},
-  // Unmei CZ: green 3-hit success & 2-choice nav (user-provided)
-  unmei3: {1:18.7,2:18.8,3:23.5,4:28.3,5:30.6,6:40.7},
-  unmei2choice: {1:48.1,2:48.1,3:50.3,4:53.9,5:56.2,6:62.8}
-};
-
-/* =========================
-   App State
-========================= */
 let state = loadState();
 
-// Day rollover: if saved day != todayStr, we keep history but reset per-day counters
+function saveState(){
+  localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+// Day rollover: keep history but reset per-day counters
 if(state.day !== todayStr){
   state.day = todayStr;
   state.k = defaultKState();
@@ -431,35 +456,28 @@ if(state.day !== todayStr){
   saveState();
 }
 
-/* =========================
-   Tabs
-========================= */
-const tabK = document.getElementById("tabK");
-const tabR = document.getElementById("tabR");
-
-tabK.addEventListener("click", ()=>{ state.activeTab="k"; saveState(); renderAll(); });
-tabR.addEventListener("click", ()=>{ state.activeTab="r"; saveState(); renderAll(); });
-
-/* =========================
-   Render Left
-========================= */
-function renderAll(){
-  tabK.classList.toggle("active", state.activeTab==="k");
-  tabR.classList.toggle("active", state.activeTab==="r");
-  renderLeft();
+function addHist(tab, text){
+  const item = { id: uid(), day: todayStr, tab, text, ts: nowTs() };
+  state.history.unshift(item);
+  saveState();
   renderRight();
 }
-
-function renderLeft(){
-  const root = document.getElementById("leftBody");
-  root.innerHTML = "";
-  if(state.activeTab === "k"){
-    root.appendChild(renderKabaneriLeft());
-  }else{
-    root.appendChild(renderRE2Left());
-  }
+function delHist(id){
+  state.history = state.history.filter(x => x.id !== id);
+  saveState();
+  renderRight();
+}
+function resetDay(){
+  state.history = state.history.filter(x => x.day !== todayStr);
+  state.k = defaultKState();
+  state.r = defaultRState();
+  saveState();
+  renderAll();
 }
 
+/* =========================
+   UI Helpers
+========================= */
 function mkField(label, innerEl){
   const f = document.createElement("div");
   f.className = "field";
@@ -470,7 +488,14 @@ function mkField(label, innerEl){
   f.appendChild(innerEl);
   return f;
 }
-
+function makeButton(text, cls, onClick){
+  const b = document.createElement("button");
+  b.type="button";
+  b.className = `btn ${cls||""}`.trim();
+  b.textContent = text;
+  b.onclick = onClick;
+  return b;
+}
 function tapCounter(title, valueGetter, incFn, decFn, extraBtns=[]){
   const wrap = document.createElement("div");
   wrap.className = "field";
@@ -489,20 +514,9 @@ function tapCounter(title, valueGetter, incFn, decFn, extraBtns=[]){
 
   const btns = document.createElement("div");
   btns.className = "tapbtns";
-  const b1 = document.createElement("button");
-  b1.type="button"; b1.className="btn small good";
-  b1.textContent = "+1";
-  b1.onclick = ()=>{ incFn(1); };
-  const b10 = document.createElement("button");
-  b10.type="button"; b10.className="btn small good";
-  b10.textContent = "+10";
-  b10.onclick = ()=>{ incFn(10); };
-  const bm1 = document.createElement("button");
-  bm1.type="button"; bm1.className="btn small bad";
-  bm1.textContent = "−1";
-  bm1.onclick = ()=>{ decFn(1); };
-
-  btns.appendChild(b1); btns.appendChild(b10); btns.appendChild(bm1);
+  btns.appendChild(makeButton("+1","small good", ()=> incFn(1)));
+  btns.appendChild(makeButton("+10","small good", ()=> incFn(10)));
+  btns.appendChild(makeButton("−1","small bad", ()=> decFn(1)));
   for(const ex of extraBtns) btns.appendChild(ex);
   line.appendChild(btns);
 
@@ -511,12 +525,71 @@ function tapCounter(title, valueGetter, incFn, decFn, extraBtns=[]){
 }
 
 /* =========================
+   Kabaneri reference tables (your provided)
+========================= */
+const K_REF = {
+  bonusAll: {1:237.0,2:230.7,3:214.0,4:186.5,5:171.3,6:151.3},
+  stAll: {1:407.9,2:393.2,3:372.4,4:327.2,5:307.3,6:290.6},
+  midBell: {1:26.6,2:26.6,3:25.9,4:25.4,5:24.9,6:24.2},
+  unmei3: {1:18.7,2:18.8,3:23.5,4:28.3,5:30.6,6:40.7},
+  unmei2choice: {1:48.1,2:48.1,3:50.3,4:53.9,5:56.2,6:62.8}
+};
+
+function closestSettingFromRate(observedInv, refInvObj){
+  if(!isFinite(observedInv) || observedInv<=0) return null;
+  let best = null;
+  for(const s of [1,2,3,4,5,6]){
+    const ref = refInvObj[s];
+    const diff = Math.abs(observedInv - ref);
+    if(best==null || diff < best.diff) best = {s, diff};
+  }
+  return best?.s ?? null;
+}
+function closestSettingFromPct(observedPct, refPctObj){
+  if(!isFinite(observedPct)) return null;
+  let best=null;
+  for(const s of [1,2,3,4,5,6]){
+    const ref = refPctObj[s];
+    const diff = Math.abs(observedPct - ref);
+    if(best==null || diff < best.diff) best = {s, diff};
+  }
+  return best?.s ?? null;
+}
+
+/* =========================
+   Tabs
+========================= */
+const tabK = document.getElementById("tabK");
+const tabR = document.getElementById("tabR");
+tabK.addEventListener("click", ()=>{ state.activeTab="k"; saveState(); renderAll(); });
+tabR.addEventListener("click", ()=>{ state.activeTab="r"; saveState(); renderAll(); });
+
+function renderAll(){
+  tabK.classList.toggle("active", state.activeTab==="k");
+  tabR.classList.toggle("active", state.activeTab==="r");
+  renderLeft();
+  renderRight();
+}
+
+/* =========================
+   Render Left
+========================= */
+function renderLeft(){
+  const root = document.getElementById("leftBody");
+  root.innerHTML = "";
+  if(state.activeTab === "k"){
+    root.appendChild(renderKabaneriLeft());
+  }else{
+    root.appendChild(renderRE2Left());
+  }
+}
+
+/* =========================
    Kabaneri Left
 ========================= */
 function renderKabaneriLeft(){
   const box = document.createElement("div");
 
-  // Top basics
   const r1 = document.createElement("div"); r1.className="row";
   const g = document.createElement("input");
   g.type="number"; g.inputMode="numeric"; g.placeholder="例）5200";
@@ -525,7 +598,6 @@ function renderKabaneriLeft(){
   r1.appendChild(mkField("総ゲーム数（任意）", g));
   box.appendChild(r1);
 
-  // CZ counters (appear/success)
   const czBox = document.createElement("div"); czBox.className="chip";
   czBox.innerHTML = `<h3>CZ（出現／成功）ワンタップ</h3>`;
   const two = document.createElement("div"); two.className="two";
@@ -542,32 +614,20 @@ function renderKabaneriLeft(){
 
     const btns = document.createElement("div"); btns.className="tapbtns";
 
-    const mk = (text, cls, fn) => {
-      const b = document.createElement("button");
-      b.type="button"; b.className=`btn small ${cls||""}`.trim();
-      b.textContent = text;
-      b.onclick = fn;
-      return b;
-    };
-
-    btns.appendChild(mk("出現 +1","good", ()=>{
+    btns.appendChild(makeButton("出現 +1","small good", ()=>{
       c.a += 1;
-      saveState();
-      addHist("k", `${label} 出現 +1`);
+      saveState(); addHist("k", `${label} 出現 +1`);
       renderAll();
     }));
-    btns.appendChild(mk("成功 +1","best", ()=>{
-      c.a += 1;
-      c.s += 1;
-      saveState();
-      addHist("k", `${label} 成功 +1`);
+    btns.appendChild(makeButton("成功 +1","small best", ()=>{
+      c.a += 1; c.s += 1;
+      saveState(); addHist("k", `${label} 成功 +1`);
       renderAll();
     }));
-    btns.appendChild(mk("−1","bad", ()=>{
+    btns.appendChild(makeButton("−1","small bad", ()=>{
       c.a = Math.max(0, c.a-1);
       c.s = Math.min(c.s, c.a);
-      saveState();
-      addHist("k", `${label} −1`);
+      saveState(); addHist("k", `${label} −1`);
       renderAll();
     }));
 
@@ -582,7 +642,6 @@ function renderKabaneriLeft(){
   czBox.appendChild(two);
   box.appendChild(czBox);
 
-  // Bonus counters
   const bBox = document.createElement("div"); bBox.className="chip";
   bBox.innerHTML = `<h3>ボーナス（ワンタップ）</h3>`;
   const bTwo = document.createElement("div"); bTwo.className="two";
@@ -593,7 +652,6 @@ function renderKabaneriLeft(){
     (n)=>{ state.k.bonus.sjo = Math.max(0, state.k.bonus.sjo-n); saveState(); addHist("k", `駿城 −${n}`); renderAll(); }
   ));
 
-  // Episode with tap-select (1..12)
   const epiField = document.createElement("div");
   epiField.className="field";
   epiField.innerHTML = `<div class="label">エピソード（話数タップ / 7話は4以上確定）</div>`;
@@ -603,46 +661,35 @@ function renderKabaneriLeft(){
   epiLine.appendChild(epiPill);
 
   const epiBtns = document.createElement("div"); epiBtns.className="tapbtns";
-  const epSel = document.createElement("div");
-  epSel.className = "mini";
-  for(let i=1;i<=12;i++){
-    const b = document.createElement("button");
-    b.type="button";
-    b.className = "btn small";
-    b.textContent = `${i}話`;
-    b.onclick = ()=>{
-      state.k.bonus.epi += 1;
-      state.k.bonus.epiLast = i;
-      if(i===7) state.k.bonus.epi7 += 1;
-      saveState();
-      addHist("k", `EP ${i}話 +1`);
-      renderAll();
-    };
-    epSel.appendChild(b);
-  }
-  const minus = document.createElement("button");
-  minus.type="button"; minus.className="btn small bad";
-  minus.textContent="−1";
-  minus.onclick = ()=>{
+  const minus = makeButton("−1","small bad", ()=>{
     state.k.bonus.epi = Math.max(0, state.k.bonus.epi-1);
-    // epi7は正確な追跡が難しいので、直近が7なら減らす
     if(state.k.bonus.epiLast===7) state.k.bonus.epi7 = Math.max(0, state.k.bonus.epi7-1);
-    saveState();
-    addHist("k", "EP −1");
-    renderAll();
-  };
+    saveState(); addHist("k", "EP −1"); renderAll();
+  });
   epiBtns.appendChild(minus);
   epiLine.appendChild(epiBtns);
 
   epiField.appendChild(epiLine);
   epiField.appendChild(document.createElement("div")).className="hr";
+
+  const epSel = document.createElement("div");
+  epSel.className = "mini";
+  for(let i=1;i<=12;i++){
+    const b = makeButton(`${i}話`,"small", ()=>{
+      state.k.bonus.epi += 1;
+      state.k.bonus.epiLast = i;
+      if(i===7) state.k.bonus.epi7 += 1;
+      saveState(); addHist("k", `EP ${i}話 +1`);
+      renderAll();
+    });
+    epSel.appendChild(b);
+  }
   epiField.appendChild(epSel);
 
   bTwo.appendChild(epiField);
   bBox.appendChild(bTwo);
   box.appendChild(bBox);
 
-  // Characters
   const cBox = document.createElement("div"); cBox.className="chip";
   cBox.innerHTML = `<h3>キャラ紹介（男女）</h3>`;
   const cTwo = document.createElement("div"); cTwo.className="two";
@@ -660,7 +707,6 @@ function renderKabaneriLeft(){
   cBox.appendChild(cTwo);
   box.appendChild(cBox);
 
-  // Optional mid bell
   const opt = document.createElement("div"); opt.className="chip";
   opt.innerHTML = `<h3>補助（任意）</h3>`;
   const optRow = document.createElement("div"); optRow.className="row";
@@ -686,12 +732,11 @@ function renderKabaneriLeft(){
   opt.appendChild(note);
 
   box.appendChild(opt);
-
   return box;
 }
 
 /* =========================
-   RE2 Left
+   RE2 Left (counts方式 + 入力/確認を分離)
 ========================= */
 function renderRE2Left(){
   const box = document.createElement("div");
@@ -713,71 +758,50 @@ function renderRE2Left(){
     (n)=>{ state.r.cz.count += n; saveState(); addHist("r", `CZ +${n}`); renderAll(); },
     (n)=>{ state.r.cz.count = Math.max(0, state.r.cz.count-n); state.r.cz.win = Math.min(state.r.cz.win, state.r.cz.count); saveState(); addHist("r", `CZ −${n}`); renderAll(); },
     [
-      (()=>{ const bb = document.createElement("button"); bb.type="button"; bb.className="btn small best"; bb.textContent="成功 +1";
-        bb.onclick=()=>{ state.r.cz.count += 1; state.r.cz.win += 1; saveState(); addHist("r","CZ 成功 +1"); renderAll(); };
-        return bb; })()
+      (()=> makeButton("成功 +1","small best", ()=>{
+        state.r.cz.count += 1; state.r.cz.win += 1;
+        saveState(); addHist("r","CZ 成功 +1"); renderAll();
+      }))()
     ]
   ));
-
   two.appendChild(tapCounter("AT回数",
     ()=> `${state.r.at.count}`,
     (n)=>{ state.r.at.count += n; saveState(); addHist("r", `AT +${n}`); renderAll(); },
     (n)=>{ state.r.at.count = Math.max(0, state.r.at.count-n); saveState(); addHist("r", `AT −${n}`); renderAll(); }
   ));
-
   two.appendChild(tapCounter("AT直撃（回数）",
     ()=> `${state.r.direct.count}`,
     (n)=>{ state.r.direct.count += n; saveState(); addHist("r", `直撃 +${n}`); renderAll(); },
     (n)=>{ state.r.direct.count = Math.max(0, state.r.direct.count-n); saveState(); addHist("r", `直撃 −${n}`); renderAll(); }
   ));
-
   two.appendChild(tapCounter("連続CZスルー（現在）",
     ()=> `${state.r.through.count}`,
     (n)=>{ state.r.through.count += n; saveState(); addHist("r", `スルー +${n}`); renderAll(); },
     (n)=>{ state.r.through.count = Math.max(0, state.r.through.count-n); saveState(); addHist("r", `スルー −${n}`); renderAll(); }
   ));
-
   b.appendChild(two);
   box.appendChild(b);
 
-  // Figures tap
+  // Figures: input / confirm
   const f = document.createElement("div"); f.className="chip";
-  f.innerHTML = `<h3>フィギュア（タップで＋1 / −1）</h3>`;
-  const meta = state.r.figs._meta;
+  f.innerHTML = `<h3>フィギュア（入力／確認）</h3>`;
 
-  for(const item of meta){
-    const field = document.createElement("div");
-    field.className="field";
-    field.innerHTML = `<div class="label">${item.tag}</div>`;
-    const line = document.createElement("div"); line.className="tapline";
-    const pill = document.createElement("div"); pill.className="pill";
-    pill.innerHTML = `<span>${item.name}</span><span class="v">${state.r.figs[item.key]}</span>`;
-    line.appendChild(pill);
+  const catRow = document.createElement("div");
+  catRow.className = "mini";
 
-    const btns = document.createElement("div"); btns.className="tapbtns";
-    const plus = document.createElement("button"); plus.type="button"; plus.className="btn small good"; plus.textContent="+1";
-    plus.onclick = ()=>{
-      state.r.figs[item.key] += 1;
-      saveState();
-      addHist("r", `フィギュア：${item.name} +1（${item.tag}）`);
-      renderAll();
-    };
-    const minus = document.createElement("button"); minus.type="button"; minus.className="btn small bad"; minus.textContent="−1";
-    minus.onclick = ()=>{
-      state.r.figs[item.key] = Math.max(0, state.r.figs[item.key]-1);
-      saveState();
-      addHist("r", `フィギュア：${item.name} −1`);
-      renderAll();
-    };
-    btns.appendChild(plus); btns.appendChild(minus);
-    line.appendChild(btns);
-    field.appendChild(line);
-    f.appendChild(field);
-  }
+  catRow.appendChild(makeButton("白（奇数）入力", "small", ()=> openFigurePicker("white")));
+  catRow.appendChild(makeButton("青（偶数）入力", "small", ()=> openFigurePicker("blue")));
+  catRow.appendChild(makeButton("赤（高設定）入力", "small", ()=> openFigurePicker("red")));
+  catRow.appendChild(makeButton("否定（銅）入力", "small warn", ()=> openFigurePicker("deny")));
+  catRow.appendChild(makeButton("確定系（銀〜虹）入力", "small best", ()=> openFigurePicker("confirm")));
+  catRow.appendChild(makeButton("出現済み一覧（0非表示）", "small best", ()=> openAppearedPicker()));
+
+  f.appendChild(catRow);
 
   const note = document.createElement("div");
   note.className="note";
-  note.innerHTML = `※ フィギュアは「否定／以上／確定」を最優先で判定に反映します。奇偶や高設定示唆（弱・強）は“傾向”として表示します。`;
+  note.style.marginTop = "10px";
+  note.innerHTML = `※ 入力はカテゴリから。確認は「出現済み一覧」で0を隠して回数多い順に表示。判定は counts を参照するので両方から反映されます。`;
   f.appendChild(document.createElement("div")).className="hr";
   f.appendChild(note);
 
@@ -786,57 +810,273 @@ function renderRE2Left(){
 }
 
 /* =========================
-   Judge Logic (reference-based)
+   RE2 Modals
 ========================= */
-function closestSettingFromRate(observedInv, refInvObj){
-  // observedInv = denominator (1/x)
-  if(!isFinite(observedInv) || observedInv<=0) return null;
-  let best = null;
-  for(const s of [1,2,3,4,5,6]){
-    const ref = refInvObj[s];
-    const diff = Math.abs(observedInv - ref);
-    if(best==null || diff < best.diff) best = {s, diff};
+function openFigurePicker(group){
+  const meta = state.r.figs._meta;
+  const counts = state.r.figs.counts;
+
+  const titleMap = {
+    white:"白（奇数示唆）",
+    blue:"青（偶数示唆）",
+    red:"赤（高設定示唆）",
+    deny:"否定（銅）",
+    confirm:"確定系（銀〜虹）"
+  };
+
+  const list = meta.filter(x => x.group === group);
+
+  const back = document.createElement("div");
+  back.className = "modalBack";
+  back.onclick = (e)=>{ if(e.target===back) back.remove(); };
+
+  const modal = document.createElement("div");
+  modal.className = "modal";
+
+  const head = document.createElement("div");
+  head.className = "modalHead";
+  head.innerHTML = `<div class="h">RE2：${titleMap[group] || group}（タップで＋1）</div>`;
+  head.appendChild(makeButton("閉じる","small bad", ()=> back.remove()));
+
+  const body = document.createElement("div");
+  body.className = "modalBody";
+
+  for(const item of list){
+    const row = document.createElement("div");
+    row.className = "field";
+
+    const top = document.createElement("div");
+    top.className = "figRow";
+
+    const leftSide = document.createElement("div");
+    leftSide.className = "figLeft";
+
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    const img = document.createElement("img");
+    img.src = `assets/re2_${item.id}.png`;
+    img.alt = item.name;
+    img.onerror = ()=>{ thumb.innerHTML = `<div class="ph">${item.id.toUpperCase()}</div>`; };
+    thumb.appendChild(img);
+
+    const text = document.createElement("div");
+    text.style.minWidth = "0";
+    const c = Number(counts[item.id]||0);
+    text.innerHTML = `
+      <div style="font-weight:900;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.name}</div>
+      <div class="mutedSmall" style="margin-top:2px">${item.tag} ｜ 回数：<b>${c}</b></div>
+    `;
+
+    leftSide.appendChild(thumb);
+    leftSide.appendChild(text);
+
+    const btns = document.createElement("div");
+    btns.className = "tapbtns";
+    btns.appendChild(makeButton("+1","small good", (e)=>{
+      e.stopPropagation();
+      counts[item.id] = Number(counts[item.id]||0) + 1;
+      saveState();
+      addHist("r", `フィギュア：${item.name} +1（${item.tag}）`);
+      renderAll();
+      back.remove(); // 連打しやすくするなら残してもOK。今回は誤タップ防止で閉じる。
+    }));
+    btns.appendChild(makeButton("−1","small bad", (e)=>{
+      e.stopPropagation();
+      counts[item.id] = Math.max(0, Number(counts[item.id]||0) - 1);
+      saveState();
+      addHist("r", `フィギュア：${item.name} −1`);
+      renderAll();
+      // 閉じない（調整用）
+      text.querySelector("b").textContent = String(counts[item.id]);
+    }));
+
+    top.appendChild(leftSide);
+    top.appendChild(btns);
+    row.appendChild(top);
+
+    // row click = +1
+    row.onclick = ()=>{
+      counts[item.id] = Number(counts[item.id]||0) + 1;
+      saveState();
+      addHist("r", `フィギュア：${item.name} +1（${item.tag}）`);
+      renderAll();
+      back.remove();
+    };
+
+    body.appendChild(row);
   }
-  return best?.s ?? null;
+
+  modal.appendChild(head);
+  modal.appendChild(body);
+  back.appendChild(modal);
+  document.body.appendChild(back);
 }
-function closestSettingFromPct(observedPct, refPctObj){
-  if(!isFinite(observedPct)) return null;
-  let best=null;
-  for(const s of [1,2,3,4,5,6]){
-    const ref = refPctObj[s];
-    const diff = Math.abs(observedPct - ref);
-    if(best==null || diff < best.diff) best = {s, diff};
+
+function openAppearedPicker(){
+  const meta = state.r.figs._meta;
+  const counts = state.r.figs.counts;
+  const cnt = (id)=> Number(counts[id]||0);
+
+  const groups = [
+    {key:"white",   title:"奇数（白）"},
+    {key:"blue",    title:"偶数（青）"},
+    {key:"red",     title:"高設定示唆（赤）"},
+    {key:"deny",    title:"否定（銅）"},
+    {key:"confirm", title:"確定系（銀〜虹）"},
+  ];
+
+  const back = document.createElement("div");
+  back.className = "modalBack";
+  back.onclick = (e)=>{ if(e.target===back) back.remove(); };
+
+  const modal = document.createElement("div");
+  modal.className = "modal";
+
+  const head = document.createElement("div");
+  head.className = "modalHead";
+  head.innerHTML = `<div class="h">RE2：出現済み一覧（0非表示 / ジャンル別 / 回数多い順）</div>`;
+  head.appendChild(makeButton("閉じる","small bad", ()=> back.remove()));
+
+  const body = document.createElement("div");
+  body.className = "modalBody";
+
+  let any = false;
+
+  for(const g of groups){
+    const list = meta
+      .filter(x => x.group === g.key)
+      .map(x => ({...x, c: cnt(x.id)}))
+      .filter(x => x.c > 0)
+      .sort((a,b)=> (b.c - a.c) || a.name.localeCompare(b.name,"ja"));
+
+    if(list.length===0) continue;
+    any = true;
+
+    const h = document.createElement("div");
+    h.className = "label";
+    h.style.margin = "6px 2px 8px";
+    h.style.fontWeight = "900";
+    h.textContent = g.title;
+    body.appendChild(h);
+
+    for(const item of list){
+      const row = document.createElement("div");
+      row.className = "field";
+
+      const top = document.createElement("div");
+      top.className = "figRow";
+
+      const leftSide = document.createElement("div");
+      leftSide.className = "figLeft";
+
+      const thumb = document.createElement("div");
+      thumb.className = "thumb";
+      const img = document.createElement("img");
+      img.src = `assets/re2_${item.id}.png`;
+      img.alt = item.name;
+      img.onerror = ()=>{ thumb.innerHTML = `<div class="ph">${item.id.toUpperCase()}</div>`; };
+      thumb.appendChild(img);
+
+      const text = document.createElement("div");
+      text.style.minWidth = "0";
+      text.innerHTML = `
+        <div style="font-weight:900;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.name}</div>
+        <div class="mutedSmall" style="margin-top:2px">${item.tag} ｜ 回数：<b>${item.c}</b></div>
+      `;
+
+      leftSide.appendChild(thumb);
+      leftSide.appendChild(text);
+
+      const btns = document.createElement("div");
+      btns.className="tapbtns";
+      btns.appendChild(makeButton("+1","small good", (e)=>{
+        e.stopPropagation();
+        counts[item.id] = cnt(item.id) + 1;
+        saveState(); addHist("r", `フィギュア：${item.name} +1（${item.tag}）`);
+        renderAll();
+        back.remove(); openAppearedPicker();
+      }));
+      btns.appendChild(makeButton("−1","small bad", (e)=>{
+        e.stopPropagation();
+        counts[item.id] = Math.max(0, cnt(item.id) - 1);
+        saveState(); addHist("r", `フィギュア：${item.name} −1`);
+        renderAll();
+        back.remove(); openAppearedPicker();
+      }));
+
+      top.appendChild(leftSide);
+      top.appendChild(btns);
+      row.appendChild(top);
+      body.appendChild(row);
+    }
+
+    body.appendChild(document.createElement("div")).className="hr";
   }
-  return best?.s ?? null;
+
+  if(!any){
+    const p = document.createElement("div");
+    p.className="note";
+    p.textContent = "まだフィギュアが1つも入力されてないよ（出たらカテゴリから入力してね）";
+    body.appendChild(p);
+  }
+
+  modal.appendChild(head);
+  modal.appendChild(body);
+  back.appendChild(modal);
+  document.body.appendChild(back);
+}
+
+/* =========================
+   Judge Logic
+========================= */
+function buildKStats(){
+  const k = state.k;
+  const totalG = Number(k.totalG || 0);
+
+  const bellCount = Number(k.midBell.count || 0);
+  const bellBase = Number(k.midBell.base || 0) || totalG;
+  let midBellInv = null, est_midbell = null;
+  if(bellCount > 0 && bellBase > 0){
+    const rate = bellCount / bellBase;
+    if(rate > 0) midBellInv = 1 / rate;
+    est_midbell = closestSettingFromRate(midBellInv, K_REF.midBell);
+  }
+
+  let unmei3Pct = null, est_unmei3 = null;
+  if(k.cz.unmei.a > 0){
+    unmei3Pct = (k.cz.unmei.s / k.cz.unmei.a) * 100;
+    est_unmei3 = closestSettingFromPct(unmei3Pct, K_REF.unmei3);
+  }
+
+  return {
+    totalG,
+    midBellInv,
+    est_midbell,
+    unmei3Pct,
+    est_unmei3,
+    bonusInv:null, est_bonus:null,
+    stInv:null, est_st:null,
+    unmei2Pct:null, est_unmei2:null
+  };
 }
 
 function judgeKabaneri(){
   const reasons = [];
   const k = state.k;
 
-  // Purple trigger: episode 7 present
   if(k.bonus.epi7 > 0){
     return {
       rank:"purple",
       badge:"🟣 高設定濃厚",
-      reasons:[
-        "エピソード7話を確認（設定4以上確定）"
-      ],
+      reasons:[ "エピソード7話を確認（設定4以上確定）" ],
       extra: buildKStats()
     };
   }
 
-  // Build reference-based “approx setting” (参考)
   const stats = buildKStats();
-
-  // Weighted aggregation from available estimates
   const estimates = [];
-
-  if(stats.est_bonus != null){ estimates.push({s: stats.est_bonus, w: 2.0, label:"ボーナス合算"}); }
-  if(stats.est_st != null){ estimates.push({s: stats.est_st, w: 1.5, label:"ST合算"}); }
-  if(stats.est_midbell != null){ estimates.push({s: stats.est_midbell, w: 1.0, label:"共通中段ベル"}); }
-  if(stats.est_unmei3 != null){ estimates.push({s: stats.est_unmei3, w: 1.7, label:"無名CZ 小役3連突破"}); }
-  if(stats.est_unmei2 != null){ estimates.push({s: stats.est_unmei2, w: 1.2, label:"無名CZ 2択ナビ"}); }
+  if(stats.est_midbell != null) estimates.push({s: stats.est_midbell, w: 1.0, label:"共通中段ベル"});
+  if(stats.est_unmei3 != null) estimates.push({s: stats.est_unmei3, w: 1.7, label:"無名CZ 小役3連突破"});
 
   let avg = null;
   if(estimates.length){
@@ -845,188 +1085,103 @@ function judgeKabaneri(){
     avg = num/den;
   }
 
-  // Determine rank from avg (reference-based, not a guarantee)
-  // If no numeric anchors, fall back to behavior-focused messages only.
   if(avg == null){
-    reasons.push("数値解析（合算・ベルなど）の入力が少ないため、今回は“傾向表示”のみ。");
-    // Use your priority: CZ & bonus counts
+    reasons.push("数値解析（ベルや突破率）の入力が少ないため、今回は“傾向表示”中心。");
     const czTot = k.cz.unmei.a + k.cz.ikoma.a + k.cz.biba.a;
     if(czTot > 0) reasons.push(`CZ出現：合計${czTot}回（無名${k.cz.unmei.a}/生駒${k.cz.ikoma.a}/美馬${k.cz.biba.a}）`);
-    if(k.bonus.sjo > 0) reasons.push(`駿城ボーナス：${k.bonus.sjo}回（あなた重視ポイント）`);
+    if(k.bonus.sjo > 0) reasons.push(`駿城ボーナス：${k.bonus.sjo}回`);
     return { rank:"yellow", badge:"🟡 中間の可能性あり", reasons, extra: stats };
   }
 
-  // Rank thresholds
   let rank="yellow";
   let badge="🟡 中間の可能性あり";
   if(avg >= 4.6){ rank="green"; badge="🟢 高設定期待"; }
-  if(avg >= 5.3){ rank="purple"; badge="🟣 高設定濃厚"; } // “濃厚”は強めだが、7話なしなので「期待強め」として扱う
+  if(avg >= 5.3){ rank="purple"; badge="🟣 高設定期待（強め）"; }
   if(avg <= 2.3){ rank="red"; badge="🔴 低設定寄り"; }
 
-  // Build reasons
-  if(stats.bonusInv) reasons.push(`ボーナス合算：1/${stats.bonusInv.toFixed(1)}（近い設定：${stats.est_bonus ?? "—"}）`);
-  if(stats.stInv) reasons.push(`ST合算：1/${stats.stInv.toFixed(1)}（近い設定：${stats.est_st ?? "—"}）`);
-
   if(stats.midBellInv) reasons.push(`共通中段ベル：1/${stats.midBellInv.toFixed(1)}（近い設定：${stats.est_midbell ?? "—"}）`);
+  if(stats.unmei3Pct != null) reasons.push(`無名CZ 突破率（入力ベース）：${fmtPct(stats.unmei3Pct)}（近い設定：${stats.est_unmei3 ?? "—"}）`);
 
-  if(stats.unmei3Pct != null) reasons.push(`無名CZ 小役3連突破（入力ベース）：${fmtPct(stats.unmei3Pct)}（近い設定：${stats.est_unmei3 ?? "—"}）`);
-  if(stats.unmei2Pct != null) reasons.push(`無名CZ 2択ナビ（入力ベース）：${fmtPct(stats.unmei2Pct)}（近い設定：${stats.est_unmei2 ?? "—"}）`);
-
-  // Your priority hints
   const czTot = k.cz.unmei.a + k.cz.ikoma.a + k.cz.biba.a;
   reasons.push(`CZ出現：合計${czTot}回（無名${k.cz.unmei.a}/生駒${k.cz.ikoma.a}/美馬${k.cz.biba.a}）`);
   reasons.push(`駿城ボーナス：${k.bonus.sjo}回`);
 
-  // Odd/even tendency from chars
   const m = k.char.male, f = k.char.female;
-  if(m+f >= 6){
-    reasons.push(`キャラ紹介：男性${m} / 女性${f}（偶奇の“傾向”参考）`);
-  }
+  if(m+f >= 6) reasons.push(`キャラ紹介：男性${m} / 女性${f}（偶奇の傾向）`);
 
-  // Soft note
-  reasons.push("※ これは解析値に近い要素からの“近似（参考）”。最終判断は資金・時間・状況と合わせてね。");
-
-  // If purple by avg but no confirm, tone down in UI by keeping purple but reason includes disclaimer.
+  reasons.push("※ 解析値に近い要素からの“参考評価”。最終判断は状況と合わせてね。");
   return { rank, badge, reasons, extra: stats };
-}
-
-function buildKStats(){
-  const k = state.k;
-  const totalG = Number(k.totalG || 0);
-
-  // We only compute “observed inverse” if totalG makes sense
-  // For bonuses, we don't have direct counts in this tool (because user prioritized Sjo/Epi/CZ)
-  // So we compute only from what exists: Use epi as "bonus count" proxy? Not correct. We'll avoid.
-  // Instead: show what user input provides, and compute only the rates we can.
-  // Provide placeholders for future expansion.
-
-  // Mid bell inv
-  const bellCount = Number(k.midBell.count || 0);
-  const bellBase = Number(k.midBell.base || 0) || totalG;
-  let midBellInv = null, est_midbell = null;
-  if(bellCount > 0 && bellBase > 0){
-    const rate = bellCount / bellBase; // occurrences per game
-    if(rate > 0) midBellInv = 1 / rate;
-    est_midbell = closestSettingFromRate(midBellInv, K_REF.midBell);
-  }
-
-  // Unmei 3-hit success & 2choice: we approximate from inputs:
-  // - Use unmei success rate as stand-in for "3-hit breakthrough" if user records only those situations
-  // - Use unmei success count vs appear count as "突破率"
-  let unmei3Pct = null, est_unmei3 = null;
-  if(k.cz.unmei.a > 0){
-    unmei3Pct = (k.cz.unmei.s / k.cz.unmei.a) * 100;
-    est_unmei3 = closestSettingFromPct(unmei3Pct, K_REF.unmei3);
-  }
-  // 2choice nav: not directly input; we treat as unknown unless user uses "無名CZ出現" as proxy. Keep null.
-  let unmei2Pct = null, est_unmei2 = null;
-
-  // Bonus/ST inv: not available in this UI now; keep null
-  return {
-    totalG,
-    midBellInv,
-    est_midbell,
-    unmei3Pct,
-    est_unmei3,
-    unmei2Pct,
-    est_unmei2,
-    bonusInv:null, est_bonus:null,
-    stInv:null, est_st:null
-  };
 }
 
 function judgeRE2(){
   const r = state.r;
-  const figs = r.figs;
-
-  // Determine min setting / confirms from figures
-  const deny = {
-    1: figs.deny1 || 0,
-    2: figs.deny2 || 0,
-    3: figs.deny3 || 0,
-    4: figs.deny4 || 0
-  };
-  const ge = {
-    3: figs.ge3 || 0,
-    4: figs.ge4 || 0,
-    5: figs.ge5 || 0
-  };
-  const eq6 = figs.eq6 || 0;
+  const meta = r.figs._meta;
+  const C = r.figs.counts || {};
+  const n = (id)=> Number(C[id]||0);
 
   const reasons = [];
 
-  // Confirm / strong floors
-  if(eq6 > 0){
+  // 確定・強確
+  if(n("eq6") > 0){
     return {
       rank:"purple",
       badge:"🟣 高設定濃厚",
-      reasons:[`エンタライオン（設定6確定）を確認：${eq6}回`],
-      extra: buildRStats()
+      reasons:[`エンタライオン（設定6確定）を確認：${n("eq6")}回`],
+      extra:{}
     };
   }
-  if(ge[5] > 0){
+  if(n("ge5") > 0){
     return {
       rank:"purple",
       badge:"🟣 高設定濃厚",
-      reasons:[`全員集合（設定5以上）を確認：${ge[5]}回`].concat(parityReasons()),
-      extra: buildRStats()
+      reasons:[`全員集合（設定5以上）を確認：${n("ge5")}回`].concat(parityReasons()),
+      extra:{}
     };
   }
 
-  // Determine floor from denies and ge4/ge3
+  // 否定/以上で下限を作る
   let floor = 1;
-  if(deny[1]>0) floor = Math.max(floor, 2);
-  if(deny[2]>0) floor = Math.max(floor, 3);
-  if(deny[3]>0) floor = Math.max(floor, 4);
-  if(deny[4]>0) floor = Math.max(floor, 5);
-  if(ge[3]>0) floor = Math.max(floor, 3);
-  if(ge[4]>0) floor = Math.max(floor, 4);
+  if(n("deny1")>0) floor = Math.max(floor, 2);
+  if(n("deny2")>0) floor = Math.max(floor, 3);
+  if(n("deny3")>0) floor = Math.max(floor, 4);
+  if(n("deny4")>0) floor = Math.max(floor, 5);
+  if(n("ge3")>0) floor = Math.max(floor, 3);
+  if(n("ge4")>0) floor = Math.max(floor, 4);
 
-  if(deny[4]>0) reasons.push(`G第4形態（設定4否定）→ 設定5以上の可能性：${deny[4]}回`);
-  else if(deny[3]>0) reasons.push(`G第3形態（設定3否定）→ 設定4以上の可能性：${deny[3]}回`);
-  else if(deny[2]>0) reasons.push(`G第2形態（設定2否定）→ 設定3以上の可能性：${deny[2]}回`);
-  else if(deny[1]>0) reasons.push(`G第1形態（設定1否定）→ 設定2以上の可能性：${deny[1]}回`);
+  if(n("deny4")>0) reasons.push(`G第4形態（設定4否定）→ 設定5以上の可能性：${n("deny4")}回`);
+  else if(n("deny3")>0) reasons.push(`G第3形態（設定3否定）→ 設定4以上の可能性：${n("deny3")}回`);
+  else if(n("deny2")>0) reasons.push(`G第2形態（設定2否定）→ 設定3以上の可能性：${n("deny2")}回`);
+  else if(n("deny1")>0) reasons.push(`G第1形態（設定1否定）→ 設定2以上の可能性：${n("deny1")}回`);
 
-  if(ge[4]>0) reasons.push(`ボスクリーチャー（設定4以上）：${ge[4]}回`);
-  if(ge[3]>0) reasons.push(`豆腐（設定3以上）：${ge[3]}回`);
+  if(n("ge4")>0) reasons.push(`ボスクリーチャー（設定4以上）：${n("ge4")}回`);
+  if(n("ge3")>0) reasons.push(`豆腐（設定3以上）：${n("ge3")}回`);
 
-  // High setting hints
-  const hiWeak = figs.hiWeak || 0;
-  const hiStrong = figs.hiStrong || 0;
-  if(hiWeak+hiStrong>0){
-    reasons.push(`高設定示唆：弱${hiWeak} / 強${hiStrong}`);
-  }
+  const hiWeak = n("hiWeak"), hiStrong = n("hiStrong");
+  if(hiWeak+hiStrong>0) reasons.push(`高設定示唆：弱${hiWeak} / 強${hiStrong}`);
 
-  // Parity
   reasons.push(...parityReasons());
 
-  // Behavior
   const czRate = r.cz.count>0 ? (r.cz.win/r.cz.count)*100 : null;
   if(r.cz.count>0) reasons.push(`CZ：${r.cz.count}回（成功 ${r.cz.win}） 成功率 ${fmtPct(czRate)}`);
   if(r.direct.count>0) reasons.push(`AT直撃：${r.direct.count}回`);
   if(r.through.count>0) reasons.push(`連続CZスルー（現在）：${r.through.count}`);
 
-  // Rank mapping to your A system
   let rank="yellow";
   let badge="🟡 中間の可能性あり";
-
   if(floor >= 4){ rank="green"; badge="🟢 高設定期待"; }
   if(floor >= 5){ rank="purple"; badge="🟣 高設定濃厚"; }
 
-  // If no strong floor and hints are sparse, red/yellow based on nothing -> keep yellow
-  // But if no figures and poor behavior, we still avoid harsh.
   if(floor <= 2 && (hiWeak+hiStrong===0) && r.cz.count>=6 && czRate!=null && czRate<20 && r.direct.count===0){
     rank="red"; badge="🔴 低設定寄り";
-    reasons.push("示唆が弱く、CZが機能していないため慎重に。");
+    reasons.push("示唆が弱く、CZも噛み合っていないため慎重に。");
   }
 
   reasons.push("※ フィギュアの「否定／以上／確定」を最優先で反映。奇偶・高設定示唆は“傾向”です。");
-
-  return { rank, badge, reasons, extra: buildRStats() };
+  return { rank, badge, reasons, extra:{} };
 
   function parityReasons(){
-    const oddW = figs.oddWeak||0, oddS=figs.oddStrong||0;
-    const evenW = figs.evenWeak||0, evenS=figs.evenStrong||0;
+    const oddW = n("oddWeak"), oddS = n("oddStrong");
+    const evenW = n("evenWeak"), evenS = n("evenStrong");
     const oddScore = oddW*1 + oddS*2;
     const evenScore = evenW*1 + evenS*2;
     const total = oddScore + evenScore;
@@ -1034,11 +1189,6 @@ function judgeRE2(){
     const t = (oddScore>evenScore) ? "奇数寄り" : (evenScore>oddScore ? "偶数寄り" : "拮抗");
     return [`奇偶示唆（傾向）：${t}（奇:弱${oddW}/強${oddS} ｜ 偶:弱${evenW}/強${evenS}）`];
   }
-}
-
-function buildRStats(){
-  // currently just a snapshot container for future
-  return {};
 }
 
 /* =========================
@@ -1066,8 +1216,8 @@ function renderRight(){
   const info = document.createElement("div");
   info.className = "sub";
   info.textContent = (state.activeTab==="k")
-    ? "カバネリ：解析値に基づく近似（参考）＋あなた重視（CZ/駿城）を強表示"
-    : "RE2：フィギュア優先（否定/以上/確定）＋挙動は補助";
+    ? "カバネリ：解析値に基づく近似（参考）＋あなた重視（CZ/駿城）"
+    : "RE2：フィギュア優先（否定/以上/確定）＋挙動は補助（counts方式で反映）";
   rankDiv.appendChild(info);
 
   judgeBox.appendChild(rankDiv);
@@ -1083,7 +1233,6 @@ function renderRight(){
   reason.appendChild(ul);
   judgeBox.appendChild(reason);
 
-  // History: show only today's, last 10
   const hist = document.getElementById("hist");
   hist.innerHTML = "";
   const todays = state.history.filter(x=>x.day===todayStr);
@@ -1112,7 +1261,7 @@ function renderRight(){
 }
 
 /* =========================
-   Buttons: reset / export / import
+   Buttons
 ========================= */
 document.getElementById("btnResetDay").addEventListener("click", ()=>{
   if(confirm("当日の入力と当日履歴をリセットします。よろしい？")){
@@ -1120,10 +1269,9 @@ document.getElementById("btnResetDay").addEventListener("click", ()=>{
   }
 });
 document.getElementById("btnExport").addEventListener("click", ()=>{
-  // export everything
   const payload = {
     exported_at: new Date().toISOString(),
-    app: "kabare2_v1",
+    app: "kabare2_v2_counts",
     state
   };
   downloadJSON(payload, `kabare2_${todayStr}.json`);
@@ -1138,26 +1286,29 @@ document.getElementById("fileIn").addEventListener("change", async (e)=>{
     const txt = await file.text();
     const obj = JSON.parse(txt);
     if(!obj || !obj.state) throw new Error("invalid");
-    // merge cautiously
+
     state = obj.state;
+
     // day rollover handling
     if(state.day !== todayStr){
       state.day = todayStr;
       state.k = defaultKState();
       state.r = defaultRState();
     }
-    // ensure meta exists
-    if(!state.r?.figs?._meta){
-      const fixed = initRE2Figs();
-      // keep counts if possible
-      if(state.r?.figs){
-        for(const k of Object.keys(fixed)){
-          if(k==="_meta") continue;
-          fixed[k] = Number(state.r.figs[k]||0);
-        }
-      }
-      state.r.figs = fixed;
+
+    // ensure RE2 counts/meta
+    const meta = buildRE2Meta();
+    if(!state.r) state.r = defaultRState();
+    if(!state.r.figs) state.r.figs = { _meta: meta, counts:{} };
+    state.r.figs._meta = meta;
+    if(!state.r.figs.counts || typeof state.r.figs.counts !== "object") state.r.figs.counts = {};
+    for(const m of meta){
+      state.r.figs.counts[m.id] = Number(state.r.figs.counts[m.id] || 0);
     }
+
+    if(!Array.isArray(state.history)) state.history = [];
+    if(!state.activeTab) state.activeTab = "k";
+
     saveState();
     renderAll();
     alert("読み込み完了！");
